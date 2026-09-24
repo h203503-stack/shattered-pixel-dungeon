@@ -1,4 +1,4 @@
-name: Build ShPD 4.0 FunMod v2.1 APK
+name: Build ShPD 4.0 FunMod v2.2 APK
 on: {workflow_dispatch: {}}
 permissions: {contents: read}
 
@@ -78,6 +78,29 @@ jobs:
           \t\t\tcom.shatteredpixel.shatteredpixeldungeon.actors.buffs.StartRingChoice.show();
           \t\t}""")
 
+          # 강화 주문서 연속 사용 시 정확히 같은 클래스만 이어서 사용.
+          # 일반 강화 주문서가 무한 강화 주문서를 잡아먹는 버그 방지.
+          r(W,
+            "private RedButton btnCancel;",
+            """private RedButton btnCancel;
+
+          \tprivate static Item sameClassUpgradeItem(Item upgrader){
+          \t\tfor (Item item : Dungeon.hero.belongings){
+          \t\t\tif (item.getClass() == upgrader.getClass()){
+          \t\t\t\treturn item;
+          \t\t\t}
+          \t\t}
+          \t\treturn null;
+          \t}""")
+
+          r(W,
+            "Item moreUpgradeItem = Dungeon.hero.belongings.getItem(upgrader.getClass());",
+            "Item moreUpgradeItem = sameClassUpgradeItem(upgrader);")
+
+          r(W,
+            "Item moreUpgradeItem = Dungeon.hero.belongings.getItem(upgrader.getClass());",
+            "Item moreUpgradeItem = sameClassUpgradeItem(upgrader);")
+
           # 무한 강화 주문서는 강화 후에도 같은 강화창을 계속 이어감
           r(W,
             "GameScene.show(new WndUpgrade(moreUpgradeItem, upgraded, false));",
@@ -86,11 +109,11 @@ jobs:
           # 기존 앱과 별도 설치
           r("build.gradle",
             "appName = 'Shattered Pixel Dungeon'",
-            "appName = 'ShPD 4.0 FunMod v2.1'")
+            "appName = 'ShPD 4.0 FunMod v2.2'")
 
           r("build.gradle",
             "appPackageName = 'com.shatteredpixel.shatteredpixeldungeon'",
-            "appPackageName = 'com.shatteredpixel.shatteredpixeldungeon.funmod21'")
+            "appPackageName = 'com.shatteredpixel.shatteredpixeldungeon.funmod22'")
           PY
 
           cat > core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/buffs/StartRingChoice.java <<'JAVA'
@@ -239,6 +262,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ShPD-4.0-FunMod-v2.1-APK
+          name: ShPD-4.0-FunMod-v2.2-APK
           path: android/build/outputs/**/*.apk
           if-no-files-found: error
