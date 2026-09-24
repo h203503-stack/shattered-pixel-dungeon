@@ -9,6 +9,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout fork
         uses: actions/checkout@v4
@@ -19,11 +20,13 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install Android SDK 36
-        run: yes | sdkmanager "platforms;android-36" "build-tools;36.0.0" || true
+        shell: bash
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          echo "Using sdkmanager: $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Apply FunMod patches
         shell: bash
@@ -35,227 +38,24 @@ jobs:
               p = Path(path)
               text = p.read_text(encoding="utf-8")
               if old not in text:
-                  raise RuntimeError(f"Patch target not found in {path}: {old[:100]!r}")
+                  raise RuntimeError(
+                      f"Patch target not found in {path}: {old[:120]!r}"
+                  )
               p.write_text(text.replace(old, new, 1), encoding="utf-8")
 
-          # 1) 15 normal SoU spawn points -> 50 total scrolls.
+          # ==========================================================
+          # 1. 강화 주문서 총 50장
+          # 기본 15회 생성에서 3,3,4 패턴 반복 = 총 50장
+          # ==========================================================
           replace_once(
               "core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/levels/Level.java",
               "\t\t\t\t\taddItemToSpawn(new ScrollOfUpgrade());",
               """\t\t\t\t\tScrollOfUpgrade funModScroll = new ScrollOfUpgrade();
-          \t\t\t\t\tint funModQty = Dungeon.LimitedDrops.UPGRADE_SCROLLS.count % 3 == 0 ? 4 : 3;
+          \t\t\t\t\tint funModQty =
+          \t\t\t\t\t\t\tDungeon.LimitedDrops.UPGRADE_SCROLLS.count % 3 == 0 ? 4 : 3;
           \t\t\t\t\tfunModScroll.quantity(funModQty);
           \t\t\t\t\taddItemToSpawn(funModScroll);"""
           )
 
-          # Normal main-dungeon respawns happen 3x as often.
-          replace_once(
-              "core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/levels/Level.java",
-              "\t\treturn cooldown / DimensionalSundial.spawnMultiplierAtCurrentTime();",
-              """\t\tfloat funModSpawnMultiplier =
-          \t\t\t\t(this instanceof RegularLevel && Dungeon.branch == 0 && !Dungeon.bossLevel()) ? 3f : 1f;
-          \t\treturn cooldown / (funModSpawnMultiplier * DimensionalSundial.spawnMultiplierAtCurrentTime());"""
-          )
-
-          # 2) Normal main-dungeon monster population x3.
-          replace_once(
-              "core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/levels/RegularLevel.java",
-              "\t\tint mobsToSpawn = Dungeon.depth == 1 ? 8 : mobLimit();",
-              "\t\tint mobsToSpawn = Dungeon.depth == 1 && Dungeon.branch == 0 ? 24 : mobLimit();"
-          )
-
-          replace_once(
-              "core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/levels/RegularLevel.java",
-              """\t\tif (feeling == Feeling.LARGE){
-          \t\t\tmobs = (int)Math.ceil(mobs * 1.33f);
-          \t\t}
-          \t\treturn mobs;""",
-              """\t\tif (feeling == Feeling.LARGE){
-          \t\t\tmobs = (int)Math.ceil(mobs * 1.33f);
-          \t\t}
-          \t\tif (Dungeon.branch == 0){
-          \t\t\tmobs *= 3;
-          \t\t}
-          \t\treturn mobs;"""
-          )
-
-          # 3) Attach a one-time ring-choice marker to every new run.
-          replace_once(
-              "core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/Dungeon.java",
-              "import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Terror;",
-              """import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Terror;
-          import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.StartRingChoice;"""
-          )
-
-          replace_once(
-              "core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/Dungeon.java",
-              "\t\tGamesInProgress.selectedClass.initHero( hero );",
-              """\t\tGamesInProgress.selectedClass.initHero( hero );
-          \t\tnew StartRingChoice().attachTo(hero);"""
-          )
-
-          # Show the choice UI once the game UI exists.
-          replace_once(
-              "core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/GameScene.java",
-              "import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.ChampionEnemy;",
-              """import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.ChampionEnemy;
-          import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.StartRingChoice;"""
-          )
-
-          replace_once(
-              "core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/GameScene.java",
-              "\t\tDungeon.hero.next();",
-              """\t\tDungeon.hero.next();
-
-          \t\tif (Dungeon.hero.buff(StartRingChoice.class) != null) {
-          \t\t\tStartRingChoice.show();
-          \t\t}"""
-          )
-
-          # 4) Add the forced two-page starting ring picker.
-          ring_choice = r"""/*
-           * Shattered Pixel Dungeon FunMod
-           * One-time starting ring selector.
-           */
-          package com.shatteredpixel.shatteredpixeldungeon.actors.buffs;
-
-          import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
-          import com.shatteredpixel.shatteredpixeldungeon.items.rings.Ring;
-          import com.shatteredpixel.shatteredpixeldungeon.items.rings.RingOfAccuracy;
-          import com.shatteredpixel.shatteredpixeldungeon.items.rings.RingOfArcana;
-          import com.shatteredpixel.shatteredpixeldungeon.items.rings.RingOfElements;
-          import com.shatteredpixel.shatteredpixeldungeon.items.rings.RingOfEnergy;
-          import com.shatteredpixel.shatteredpixeldungeon.items.rings.RingOfEvasion;
-          import com.shatteredpixel.shatteredpixeldungeon.items.rings.RingOfForce;
-          import com.shatteredpixel.shatteredpixeldungeon.items.rings.RingOfFuror;
-          import com.shatteredpixel.shatteredpixeldungeon.items.rings.RingOfHaste;
-          import com.shatteredpixel.shatteredpixeldungeon.items.rings.RingOfMight;
-          import com.shatteredpixel.shatteredpixeldungeon.items.rings.RingOfSharpshooting;
-          import com.shatteredpixel.shatteredpixeldungeon.items.rings.RingOfTenacity;
-          import com.shatteredpixel.shatteredpixeldungeon.items.rings.RingOfWealth;
-          import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
-          import com.shatteredpixel.shatteredpixeldungeon.windows.WndOptions;
-
-          public class StartRingChoice extends Buff {
-
-              public static void show() {
-                  showPageOne();
-              }
-
-              private static void showPageOne() {
-                  GameScene.show(new WndOptions(
-                          "시작 반지 선택",
-                          "새 게임 보너스로 원하는 반지 하나를 고르세요. 선택한 반지는 +0, 식별 완료, 저주 없음 상태로 지급됩니다.",
-                          "정확성의 반지",
-                          "비전의 반지",
-                          "원소의 반지",
-                          "충전의 반지",
-                          "회피의 반지",
-                          "완력의 반지",
-                          "다음 ▶") {
-
-                      @Override
-                      protected void onSelect(int index) {
-                          if (index == 6) {
-                              super.hide();
-                              showPageTwo();
-                              return;
-                          }
-
-                          switch (index) {
-                              case 0: give(new RingOfAccuracy()); break;
-                              case 1: give(new RingOfArcana()); break;
-                              case 2: give(new RingOfElements()); break;
-                              case 3: give(new RingOfEnergy()); break;
-                              case 4: give(new RingOfEvasion()); break;
-                              case 5: give(new RingOfForce()); break;
-                          }
-                          super.hide();
-                      }
-
-                      @Override
-                      public void hide() {
-                          // Must choose an option.
-                      }
-                  });
-              }
-
-              private static void showPageTwo() {
-                  GameScene.show(new WndOptions(
-                          "시작 반지 선택",
-                          "나머지 반지입니다.",
-                          "격노의 반지",
-                          "신속의 반지",
-                          "힘의 반지",
-                          "저격의 반지",
-                          "인내의 반지",
-                          "재산의 반지",
-                          "◀ 이전") {
-
-                      @Override
-                      protected void onSelect(int index) {
-                          if (index == 6) {
-                              super.hide();
-                              showPageOne();
-                              return;
-                          }
-
-                          switch (index) {
-                              case 0: give(new RingOfFuror()); break;
-                              case 1: give(new RingOfHaste()); break;
-                              case 2: give(new RingOfMight()); break;
-                              case 3: give(new RingOfSharpshooting()); break;
-                              case 4: give(new RingOfTenacity()); break;
-                              case 5: give(new RingOfWealth()); break;
-                          }
-                          super.hide();
-                      }
-
-                      @Override
-                      public void hide() {
-                          // Must choose an option.
-                      }
-                  });
-              }
-
-              private static void give(Ring ring) {
-                  ring.cursed = false;
-                  ring.cursedKnown = true;
-                  ring.identify();
-
-                  if (!ring.collect()) {
-                      Dungeon.level.drop(ring, Dungeon.hero.pos).sprite.drop();
-                  }
-
-                  StartRingChoice choice = Dungeon.hero.buff(StartRingChoice.class);
-                  if (choice != null) {
-                      choice.detach();
-                  }
-              }
-          }
-          """
-
-          out = Path("core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/buffs/StartRingChoice.java")
-          out.write_text(ring_choice, encoding="utf-8")
-
-          # Distinguish the debug mod from vanilla.
-          replace_once(
-              "build.gradle",
-              "appName = 'Shattered Pixel Dungeon'",
-              "appName = 'ShPD 4.0 FunMod'"
-          )
-
-          print("FunMod patches applied successfully.")
-          PY
-
-      - name: Build debug APK
-        run: |
-          chmod +x gradlew
-          ./gradlew :android:assembleDebug --stacktrace
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: ShPD-4.0-FunMod-APK
-          path: android/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
+          # ==========================================================
+          # 2. 일반 던전 몹
