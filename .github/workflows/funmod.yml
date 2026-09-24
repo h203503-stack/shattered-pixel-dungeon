@@ -1,4 +1,4 @@
-name: Build ShPD 4.0 FunMod v2 APK
+name: Build ShPD 4.0 FunMod v2.1 APK
 on: {workflow_dispatch: {}}
 permissions: {contents: read}
 
@@ -30,20 +30,23 @@ jobs:
               p=Path(f)
               s=p.read_text(encoding="utf-8")
               if a not in s:
-                  raise Exception("not found: "+f+" :: "+a[:80])
+                  raise Exception("not found: "+f+" :: "+a[:100])
               p.write_text(s.replace(a,b,1),encoding="utf-8")
 
           L="core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/levels/Level.java"
           R="core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/levels/RegularLevel.java"
           D="core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/Dungeon.java"
           G="core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/GameScene.java"
+          W="core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndUpgrade.java"
 
+          # 일반층 리스폰 속도 x1.5
           r(L,
             "\t\treturn cooldown / DimensionalSundial.spawnMultiplierAtCurrentTime();",
             """\t\tfloat funModSpawnRate =
           \t\t\t\t(this instanceof RegularLevel && Dungeon.branch == 0 && !Dungeon.bossLevel()) ? 1.5f : 1f;
           \t\treturn cooldown / (funModSpawnRate * DimensionalSundial.spawnMultiplierAtCurrentTime());""")
 
+          # 초기 몹 x2, 1층 8 -> 16
           r(R,
             "\t\tint mobsToSpawn = Dungeon.depth == 1 ? 8 : mobLimit();",
             "\t\tint mobsToSpawn = Dungeon.depth == 1 && Dungeon.branch == 0 ? 16 : mobLimit();")
@@ -61,6 +64,7 @@ jobs:
           \t\t}
           \t\treturn mobs;""")
 
+          # 시작 반지 선택 + 무한 강화 주문서
           r(D,
             "\t\tGamesInProgress.selectedClass.initHero( hero );",
             """\t\tGamesInProgress.selectedClass.initHero( hero );
@@ -74,13 +78,19 @@ jobs:
           \t\t\tcom.shatteredpixel.shatteredpixeldungeon.actors.buffs.StartRingChoice.show();
           \t\t}""")
 
+          # 무한 강화 주문서는 강화 후에도 같은 강화창을 계속 이어감
+          r(W,
+            "GameScene.show(new WndUpgrade(moreUpgradeItem, upgraded, false));",
+            "GameScene.show(new WndUpgrade(moreUpgradeItem, upgraded, upgrader instanceof com.shatteredpixel.shatteredpixeldungeon.items.scrolls.InfiniteScrollOfUpgrade));")
+
+          # 기존 앱과 별도 설치
           r("build.gradle",
             "appName = 'Shattered Pixel Dungeon'",
-            "appName = 'ShPD 4.0 FunMod v2'")
+            "appName = 'ShPD 4.0 FunMod v2.1'")
 
           r("build.gradle",
             "appPackageName = 'com.shatteredpixel.shatteredpixeldungeon'",
-            "appPackageName = 'com.shatteredpixel.shatteredpixeldungeon.funmod2'")
+            "appPackageName = 'com.shatteredpixel.shatteredpixeldungeon.funmod21'")
           PY
 
           cat > core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/buffs/StartRingChoice.java <<'JAVA'
@@ -139,11 +149,8 @@ jobs:
                               Dungeon.level.drop(ring, Dungeon.hero.pos);
                           }
 
-                          StartRingChoice choice =
-                                  Dungeon.hero.buff(StartRingChoice.class);
-                          if (choice != null) {
-                              choice.detach();
-                          }
+                          StartRingChoice choice = Dungeon.hero.buff(StartRingChoice.class);
+                          if (choice != null) choice.detach();
 
                           super.hide();
                       }
@@ -159,13 +166,11 @@ jobs:
           cat > core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/items/scrolls/InfiniteScrollOfUpgrade.java <<'JAVA'
           package com.shatteredpixel.shatteredpixeldungeon.items.scrolls;
 
-          import com.shatteredpixel.shatteredpixeldungeon.Assets;
-          import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
           import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
           import com.shatteredpixel.shatteredpixeldungeon.items.Item;
           import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
           import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
-          import com.watabou.noosa.audio.Sample;
+          import com.shatteredpixel.shatteredpixeldungeon.windows.WndUpgrade;
 
           import java.util.ArrayList;
 
@@ -198,8 +203,8 @@ jobs:
 
               @Override
               public String desc() {
-                  return "읽어도 사라지지 않는 특별한 강화의 주문서다. "
-                          + "사용할 때마다 선택한 장비를 한 단계 강화한다.";
+                  return "읽어도 사라지지 않는 강화의 주문서다. "
+                          + "강화 창에서 같은 장비를 연속으로 계속 강화할 수 있다.";
               }
 
               @Override
@@ -210,17 +215,8 @@ jobs:
               }
 
               @Override
-              public void doRead() {
-                  GameScene.selectItem(getSelector(false));
-              }
-
-              @Override
               protected void onItemSelected(Item item) {
-                  if (item == null) return;
-
-                  upgradeItem(item);
-                  Sample.INSTANCE.play(Assets.Sounds.READ);
-                  Dungeon.hero.spendAndNext(1f);
+                  GameScene.show(new WndUpgrade(this, item, true));
               }
 
               @Override
@@ -243,6 +239,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ShPD-4.0-FunMod-v2-APK
+          name: ShPD-4.0-FunMod-v2.1-APK
           path: android/build/outputs/**/*.apk
           if-no-files-found: error
