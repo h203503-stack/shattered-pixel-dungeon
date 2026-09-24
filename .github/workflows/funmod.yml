@@ -1,4 +1,4 @@
-name: Build ShPD 4.0 FunMod APK
+name: Build ShPD 4.0 FunMod v2 APK
 on: {workflow_dispatch: {}}
 permissions: {contents: read}
 
@@ -25,50 +25,62 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+
           def r(f,a,b):
-              p=Path(f); s=p.read_text()
-              if a not in s: raise Exception("not found: "+f+" :: "+a[:60])
-              p.write_text(s.replace(a,b,1))
+              p=Path(f)
+              s=p.read_text(encoding="utf-8")
+              if a not in s:
+                  raise Exception("not found: "+f+" :: "+a[:80])
+              p.write_text(s.replace(a,b,1),encoding="utf-8")
 
           L="core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/levels/Level.java"
           R="core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/levels/RegularLevel.java"
           D="core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/Dungeon.java"
           G="core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/GameScene.java"
 
-          r(L,"\t\t\t\t\taddItemToSpawn(new ScrollOfUpgrade());",
-          """\t\t\t\t\tScrollOfUpgrade s=new ScrollOfUpgrade();
-          \t\t\t\t\ts.quantity(Dungeon.LimitedDrops.UPGRADE_SCROLLS.count%3==0?4:3);
-          \t\t\t\t\taddItemToSpawn(s);""")
+          r(L,
+            "\t\treturn cooldown / DimensionalSundial.spawnMultiplierAtCurrentTime();",
+            """\t\tfloat funModSpawnRate =
+          \t\t\t\t(this instanceof RegularLevel && Dungeon.branch == 0 && !Dungeon.bossLevel()) ? 1.5f : 1f;
+          \t\treturn cooldown / (funModSpawnRate * DimensionalSundial.spawnMultiplierAtCurrentTime());""")
 
-          r(L,"\t\treturn cooldown / DimensionalSundial.spawnMultiplierAtCurrentTime();",
-          """\t\tfloat x=(this instanceof RegularLevel&&Dungeon.branch==0&&!Dungeon.bossLevel())?3f:1f;
-          \t\treturn cooldown/(x*DimensionalSundial.spawnMultiplierAtCurrentTime());""")
+          r(R,
+            "\t\tint mobsToSpawn = Dungeon.depth == 1 ? 8 : mobLimit();",
+            "\t\tint mobsToSpawn = Dungeon.depth == 1 && Dungeon.branch == 0 ? 16 : mobLimit();")
 
-          r(R,"\t\tint mobsToSpawn = Dungeon.depth == 1 ? 8 : mobLimit();",
-              "\t\tint mobsToSpawn= Dungeon.depth==1&&Dungeon.branch==0 ? 24 : mobLimit();")
-
-          r(R,"""\t\tif (feeling == Feeling.LARGE){
+          r(R,
+            """\t\tif (feeling == Feeling.LARGE){
           \t\t\tmobs = (int)Math.ceil(mobs * 1.33f);
           \t\t}
           \t\treturn mobs;""",
-          """\t\tif (feeling == Feeling.LARGE){
+            """\t\tif (feeling == Feeling.LARGE){
           \t\t\tmobs = (int)Math.ceil(mobs * 1.33f);
           \t\t}
-          \t\tif(Dungeon.branch==0)mobs*=3;
+          \t\tif (Dungeon.branch == 0){
+          \t\t\tmobs *= 2;
+          \t\t}
           \t\treturn mobs;""")
 
-          r(D,"\t\tGamesInProgress.selectedClass.initHero( hero );",
-          """\t\tGamesInProgress.selectedClass.initHero( hero );
-          \t\tnew com.shatteredpixel.shatteredpixeldungeon.actors.buffs.StartRingChoice().attachTo(hero);""")
+          r(D,
+            "\t\tGamesInProgress.selectedClass.initHero( hero );",
+            """\t\tGamesInProgress.selectedClass.initHero( hero );
+          \t\tnew com.shatteredpixel.shatteredpixeldungeon.actors.buffs.StartRingChoice().attachTo(hero);
+          \t\tnew com.shatteredpixel.shatteredpixeldungeon.items.scrolls.InfiniteScrollOfUpgrade().collect();""")
 
-          r(G,"\t\tDungeon.hero.next();",
-          """\t\tDungeon.hero.next();
-          \t\tif(Dungeon.hero.buff(com.shatteredpixel.shatteredpixeldungeon.actors.buffs.StartRingChoice.class)!=null)
-          \t\t\tcom.shatteredpixel.shatteredpixeldungeon.actors.buffs.StartRingChoice.show();""")
+          r(G,
+            "\t\tDungeon.hero.next();",
+            """\t\tDungeon.hero.next();
+          \t\tif (Dungeon.hero.buff(com.shatteredpixel.shatteredpixeldungeon.actors.buffs.StartRingChoice.class) != null) {
+          \t\t\tcom.shatteredpixel.shatteredpixeldungeon.actors.buffs.StartRingChoice.show();
+          \t\t}""")
 
-          r("build.gradle","appName = 'Shattered Pixel Dungeon'","appName = 'ShPD 4.0 FunMod'")
-          r("build.gradle","appPackageName = 'com.shatteredpixel.shatteredpixeldungeon'",
-                            "appPackageName = 'com.shatteredpixel.shatteredpixeldungeon.funmod'")
+          r("build.gradle",
+            "appName = 'Shattered Pixel Dungeon'",
+            "appName = 'ShPD 4.0 FunMod v2'")
+
+          r("build.gradle",
+            "appPackageName = 'com.shatteredpixel.shatteredpixeldungeon'",
+            "appPackageName = 'com.shatteredpixel.shatteredpixeldungeon.funmod2'")
           PY
 
           cat > core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/buffs/StartRingChoice.java <<'JAVA'
@@ -81,36 +93,144 @@ jobs:
           import com.watabou.utils.Reflection;
 
           public class StartRingChoice extends Buff {
-              private static final Class[] R={
-                  RingOfAccuracy.class,RingOfArcana.class,RingOfElements.class,
-                  RingOfEnergy.class,RingOfEvasion.class,RingOfForce.class,
-                  RingOfFuror.class,RingOfHaste.class,RingOfMight.class,
-                  RingOfSharpshooting.class,RingOfTenacity.class,RingOfWealth.class
-              };
-              private static final String[] N={
-                  "정확성","비전","원소","충전","회피","완력",
-                  "격노","신속","힘","저격","인내","재산"
+
+              private static final Class[] R = {
+                      RingOfAccuracy.class, RingOfArcana.class, RingOfElements.class,
+                      RingOfEnergy.class, RingOfEvasion.class, RingOfForce.class,
+                      RingOfFuror.class, RingOfHaste.class, RingOfMight.class,
+                      RingOfSharpshooting.class, RingOfTenacity.class, RingOfWealth.class
               };
 
-              public static void show(){ page(0); }
+              private static final String[] N = {
+                      "정확성", "비전", "원소", "충전", "회피", "완력",
+                      "격노", "신속", "힘", "저격", "인내", "재산"
+              };
 
-              private static void page(final int o){
-                  String[] b=new String[7];
-                  for(int i=0;i<6;i++) b[i]=N[o+i]+"의 반지";
-                  b[6]=o==0?"다음 ▶":"◀ 이전";
-                  GameScene.show(new WndOptions("시작 반지 선택",
-                          "+0 / 식별 완료 / 저주 없음",b){
-                      @Override protected void onSelect(int i){
-                          if(i==6){ super.hide(); page(o==0?6:0); return; }
-                          Ring r=(Ring)Reflection.newInstance(R[o+i]);
-                          r.cursed=false; r.cursedKnown=true; r.identify();
-                          if(!r.collect()) Dungeon.level.drop(r,Dungeon.hero.pos);
-                          StartRingChoice c=Dungeon.hero.buff(StartRingChoice.class);
-                          if(c!=null)c.detach();
+              public static void show() {
+                  page(0);
+              }
+
+              private static void page(final int offset) {
+                  String[] buttons = new String[7];
+                  for (int i = 0; i < 6; i++) {
+                      buttons[i] = N[offset+i] + "의 반지";
+                  }
+                  buttons[6] = offset == 0 ? "다음 ▶" : "◀ 이전";
+
+                  GameScene.show(new WndOptions(
+                          "시작 반지 선택",
+                          "+0 / 식별 완료 / 저주 없음",
+                          buttons) {
+
+                      @Override
+                      protected void onSelect(int index) {
+                          if (index == 6) {
+                              super.hide();
+                              page(offset == 0 ? 6 : 0);
+                              return;
+                          }
+
+                          Ring ring = (Ring) Reflection.newInstance(R[offset+index]);
+                          ring.cursed = false;
+                          ring.cursedKnown = true;
+                          ring.identify();
+
+                          if (!ring.collect()) {
+                              Dungeon.level.drop(ring, Dungeon.hero.pos);
+                          }
+
+                          StartRingChoice choice =
+                                  Dungeon.hero.buff(StartRingChoice.class);
+                          if (choice != null) {
+                              choice.detach();
+                          }
+
                           super.hide();
                       }
-                      @Override public void hide(){}
+
+                      @Override
+                      public void hide() {
+                      }
                   });
+              }
+          }
+          JAVA
+
+          cat > core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/items/scrolls/InfiniteScrollOfUpgrade.java <<'JAVA'
+          package com.shatteredpixel.shatteredpixeldungeon.items.scrolls;
+
+          import com.shatteredpixel.shatteredpixeldungeon.Assets;
+          import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
+          import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
+          import com.shatteredpixel.shatteredpixeldungeon.items.Item;
+          import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
+          import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
+          import com.watabou.noosa.audio.Sample;
+
+          import java.util.ArrayList;
+
+          public class InfiniteScrollOfUpgrade extends ScrollOfUpgrade {
+
+              {
+                  stackable = false;
+                  unique = true;
+                  keptThoughLostInvent = true;
+                  image = ItemSpriteSheet.SCROLL_ISAZ;
+                  icon = ItemSpriteSheet.Icons.SCROLL_UPGRADE;
+                  cursed = false;
+                  cursedKnown = true;
+                  levelKnown = true;
+              }
+
+              @Override
+              public boolean isKnown() {
+                  return true;
+              }
+
+              @Override
+              public void setKnown() {
+              }
+
+              @Override
+              public String name() {
+                  return "무한 강화의 주문서";
+              }
+
+              @Override
+              public String desc() {
+                  return "읽어도 사라지지 않는 특별한 강화의 주문서다. "
+                          + "사용할 때마다 선택한 장비를 한 단계 강화한다.";
+              }
+
+              @Override
+              public ArrayList<String> actions(Hero hero) {
+                  ArrayList<String> actions = new ArrayList<>();
+                  actions.add(AC_READ);
+                  return actions;
+              }
+
+              @Override
+              public void doRead() {
+                  GameScene.selectItem(getSelector(false));
+              }
+
+              @Override
+              protected void onItemSelected(Item item) {
+                  if (item == null) return;
+
+                  upgradeItem(item);
+                  Sample.INSTANCE.play(Assets.Sounds.READ);
+                  Dungeon.hero.spendAndNext(1f);
+              }
+
+              @Override
+              public int value() {
+                  return 0;
+              }
+
+              @Override
+              public int energyVal() {
+                  return 0;
               }
           }
           JAVA
@@ -123,6 +243,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ShPD-4.0-FunMod-APK
+          name: ShPD-4.0-FunMod-v2-APK
           path: android/build/outputs/**/*.apk
           if-no-files-found: error
