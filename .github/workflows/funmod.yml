@@ -1,4 +1,4 @@
-name: Build ShPD 4.0 FunMod v2.2 APK
+name: Build ShPD 4.0 FunMod v2.3 APK
 on: {workflow_dispatch: {}}
 permissions: {contents: read}
 
@@ -101,19 +101,32 @@ jobs:
             "Item moreUpgradeItem = Dungeon.hero.belongings.getItem(upgrader.getClass());",
             "Item moreUpgradeItem = sameClassUpgradeItem(upgrader);")
 
-          # 무한 강화 주문서는 강화 후에도 같은 강화창을 계속 이어감
+          # 무한 강화 주문서는 다음 주문서를 찾지 않고 자기 자신으로 강화창을 즉시 다시 연다.
+          r(W,
+            """\t\t\t\tif (!force) upgrader.detach(Dungeon.hero.belongings.backpack);
+          \t\t\t\tItem moreUpgradeItem = sameClassUpgradeItem(upgrader);""",
+            """\t\t\t\tif (upgrader instanceof com.shatteredpixel.shatteredpixeldungeon.items.scrolls.InfiniteScrollOfUpgrade){
+          \t\t\t\t\thide();
+          \t\t\t\t\tif (upgraded != null && upgraded.isUpgradable()){
+          \t\t\t\t\t\tGameScene.show(new WndUpgrade(upgrader, upgraded, true));
+          \t\t\t\t\t}
+          \t\t\t\t\treturn;
+          \t\t\t\t}
+          \t\t\t\tif (!force) upgrader.detach(Dungeon.hero.belongings.backpack);
+          \t\t\t\tItem moreUpgradeItem = sameClassUpgradeItem(upgrader);""")
+
           r(W,
             "GameScene.show(new WndUpgrade(moreUpgradeItem, upgraded, false));",
-            "GameScene.show(new WndUpgrade(moreUpgradeItem, upgraded, upgrader instanceof com.shatteredpixel.shatteredpixeldungeon.items.scrolls.InfiniteScrollOfUpgrade));")
+            "GameScene.show(new WndUpgrade(moreUpgradeItem, upgraded, false));")
 
           # 기존 앱과 별도 설치
           r("build.gradle",
             "appName = 'Shattered Pixel Dungeon'",
-            "appName = 'ShPD 4.0 FunMod v2.2'")
+            "appName = 'ShPD 4.0 FunMod v2.3'")
 
           r("build.gradle",
             "appPackageName = 'com.shatteredpixel.shatteredpixeldungeon'",
-            "appPackageName = 'com.shatteredpixel.shatteredpixeldungeon.funmod22'")
+            "appPackageName = 'com.shatteredpixel.shatteredpixeldungeon.funmod23'")
           PY
 
           cat > core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/buffs/StartRingChoice.java <<'JAVA'
@@ -262,6 +275,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ShPD-4.0-FunMod-v2.2-APK
+          name: ShPD-4.0-FunMod-v2.3-APK
           path: android/build/outputs/**/*.apk
           if-no-files-found: error
