@@ -1,61 +1,128 @@
 name: Build ShPD 4.0 FunMod APK
-
-on:
-  workflow_dispatch:
-
-permissions:
-  contents: read
+on: {workflow_dispatch: {}}
+permissions: {contents: read}
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout fork
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android SDK 36
+      - name: SDK 36
         shell: bash
         run: |
-          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)"
-          echo "Using sdkmanager: $SDKMANAGER"
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
+          S="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -1)"
+          yes | "$S" --licenses >/dev/null || true
+          "$S" "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Apply FunMod patches
+      - name: Patch game
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          def r(f,a,b):
+              p=Path(f); s=p.read_text()
+              if a not in s: raise Exception("not found: "+f+" :: "+a[:60])
+              p.write_text(s.replace(a,b,1))
 
-          def replace_once(path, old, new):
-              p = Path(path)
-              text = p.read_text(encoding="utf-8")
-              if old not in text:
-                  raise RuntimeError(
-                      f"Patch target not found in {path}: {old[:120]!r}"
-                  )
-              p.write_text(text.replace(old, new, 1), encoding="utf-8")
+          L="core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/levels/Level.java"
+          R="core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/levels/RegularLevel.java"
+          D="core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/Dungeon.java"
+          G="core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/GameScene.java"
 
-          # ==========================================================
-          # 1. 강화 주문서 총 50장
-          # 기본 15회 생성에서 3,3,4 패턴 반복 = 총 50장
-          # ==========================================================
-          replace_once(
-              "core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/levels/Level.java",
-              "\t\t\t\t\taddItemToSpawn(new ScrollOfUpgrade());",
-              """\t\t\t\t\tScrollOfUpgrade funModScroll = new ScrollOfUpgrade();
-          \t\t\t\t\tint funModQty =
-          \t\t\t\t\t\t\tDungeon.LimitedDrops.UPGRADE_SCROLLS.count % 3 == 0 ? 4 : 3;
-          \t\t\t\t\tfunModScroll.quantity(funModQty);
-          \t\t\t\t\taddItemToSpawn(funModScroll);"""
-          )
+          r(L,"\t\t\t\t\taddItemToSpawn(new ScrollOfUpgrade());",
+          """\t\t\t\t\tScrollOfUpgrade s=new ScrollOfUpgrade();
+          \t\t\t\t\ts.quantity(Dungeon.LimitedDrops.UPGRADE_SCROLLS.count%3==0?4:3);
+          \t\t\t\t\taddItemToSpawn(s);""")
 
-          # ==========================================================
-          # 2. 일반 던전 몹
+          r(L,"\t\treturn cooldown / DimensionalSundial.spawnMultiplierAtCurrentTime();",
+          """\t\tfloat x=(this instanceof RegularLevel&&Dungeon.branch==0&&!Dungeon.bossLevel())?3f:1f;
+          \t\treturn cooldown/(x*DimensionalSundial.spawnMultiplierAtCurrentTime());""")
+
+          r(R,"\t\tint mobsToSpawn = Dungeon.depth == 1 ? 8 : mobLimit();",
+              "\t\tint mobsToSpawn= Dungeon.depth==1&&Dungeon.branch==0 ? 24 : mobLimit();")
+
+          r(R,"""\t\tif (feeling == Feeling.LARGE){
+          \t\t\tmobs = (int)Math.ceil(mobs * 1.33f);
+          \t\t}
+          \t\treturn mobs;""",
+          """\t\tif (feeling == Feeling.LARGE){
+          \t\t\tmobs = (int)Math.ceil(mobs * 1.33f);
+          \t\t}
+          \t\tif(Dungeon.branch==0)mobs*=3;
+          \t\treturn mobs;""")
+
+          r(D,"\t\tGamesInProgress.selectedClass.initHero( hero );",
+          """\t\tGamesInProgress.selectedClass.initHero( hero );
+          \t\tnew com.shatteredpixel.shatteredpixeldungeon.actors.buffs.StartRingChoice().attachTo(hero);""")
+
+          r(G,"\t\tDungeon.hero.next();",
+          """\t\tDungeon.hero.next();
+          \t\tif(Dungeon.hero.buff(com.shatteredpixel.shatteredpixeldungeon.actors.buffs.StartRingChoice.class)!=null)
+          \t\t\tcom.shatteredpixel.shatteredpixeldungeon.actors.buffs.StartRingChoice.show();""")
+
+          r("build.gradle","appName = 'Shattered Pixel Dungeon'","appName = 'ShPD 4.0 FunMod'")
+          r("build.gradle","appPackageName = 'com.shatteredpixel.shatteredpixeldungeon'",
+                            "appPackageName = 'com.shatteredpixel.shatteredpixeldungeon.funmod'")
+          PY
+
+          cat > core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/buffs/StartRingChoice.java <<'JAVA'
+          package com.shatteredpixel.shatteredpixeldungeon.actors.buffs;
+
+          import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
+          import com.shatteredpixel.shatteredpixeldungeon.items.rings.*;
+          import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
+          import com.shatteredpixel.shatteredpixeldungeon.windows.WndOptions;
+          import com.watabou.utils.Reflection;
+
+          public class StartRingChoice extends Buff {
+              private static final Class[] R={
+                  RingOfAccuracy.class,RingOfArcana.class,RingOfElements.class,
+                  RingOfEnergy.class,RingOfEvasion.class,RingOfForce.class,
+                  RingOfFuror.class,RingOfHaste.class,RingOfMight.class,
+                  RingOfSharpshooting.class,RingOfTenacity.class,RingOfWealth.class
+              };
+              private static final String[] N={
+                  "정확성","비전","원소","충전","회피","완력",
+                  "격노","신속","힘","저격","인내","재산"
+              };
+
+              public static void show(){ page(0); }
+
+              private static void page(final int o){
+                  String[] b=new String[7];
+                  for(int i=0;i<6;i++) b[i]=N[o+i]+"의 반지";
+                  b[6]=o==0?"다음 ▶":"◀ 이전";
+                  GameScene.show(new WndOptions("시작 반지 선택",
+                          "+0 / 식별 완료 / 저주 없음",b){
+                      @Override protected void onSelect(int i){
+                          if(i==6){ super.hide(); page(o==0?6:0); return; }
+                          Ring r=(Ring)Reflection.newInstance(R[o+i]);
+                          r.cursed=false; r.cursedKnown=true; r.identify();
+                          if(!r.collect()) Dungeon.level.drop(r,Dungeon.hero.pos);
+                          StartRingChoice c=Dungeon.hero.buff(StartRingChoice.class);
+                          if(c!=null)c.detach();
+                          super.hide();
+                      }
+                      @Override public void hide(){}
+                  });
+              }
+          }
+          JAVA
+
+      - name: Build APK
+        run: |
+          chmod +x gradlew
+          ./gradlew :android:assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShPD-4.0-FunMod-APK
+          path: android/build/outputs/**/*.apk
+          if-no-files-found: error
